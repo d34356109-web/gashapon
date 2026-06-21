@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MINI TEEN 扭蛋盤點系統</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .counter-card { transition: transform 0.1s; }
+        .counter-card:active { transform: scale(0.97); }
+        
+        /* 隱藏原生數字輸入框的上下箭頭 */
+        input[type="number"]::-webkit-inner-spin-button,
+        input[type="number"]::-webkit-outer-spin-button {
+            -webkit-appearance: none;
+            margin: 0;
+        }
+    </style>
+</head>
+<body class="bg-slate-50 p-4 md:p-8 font-sans pb-24">
+
+    <!-- Toast 提示訊息容器 -->
+    <div id="toast" class="fixed top-5 left-1/2 transform -translate-x-1/2 text-white px-6 py-3 rounded-full shadow-lg transition-opacity duration-300 opacity-0 pointer-events-none z-50 flex items-center gap-2">
+        <span id="toastIcon"></span>
+        <span id="toastMsg" class="font-bold tracking-wide"></span>
+    </div>
+
+    <div class="max-w-4xl mx-auto">
+        <header class="mb-6 text-center">
+            <h1 class="text-3xl font-black text-slate-800 tracking-tight">MINI TEEN 扭蛋盤點系統</h1>
+            <p class="text-slate-500 mt-2 font-medium">記錄每個客人的扭蛋，並自動加總統計</p>
+            
+            <!-- 雲端連線狀態指示器 -->
+            <div id="syncStatus" class="mt-4 flex items-center justify-center gap-2 text-sm font-bold text-amber-500">
+                <span class="relative flex h-3 w-3">
+                  <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                  <span class="relative inline-flex rounded-full h-3 w-3 bg-amber-500"></span>
+                </span>
+                正在連接雲端伺服器...
+            </div>
+        </header>
+
+        <!-- Current Order Input -->
+        <div class="bg-white p-5 md:p-8 rounded-3xl shadow-sm border border-slate-100 mb-8">
+            <div class="mb-6">
+                <label class="block text-sm font-bold text-slate-700 mb-2 pl-1">👤 客人名稱 / 訂單備註</label>
+                <input type="text" id="customerName" placeholder="請輸入客人名稱 (必填)" class="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-4 focus:ring-blue-100 focus:border-blue-400 outline-none transition text-lg font-medium">
+            </div>
+
+            <div id="counterGrid" class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 md:gap-4">
+                <!-- Counters will be injected here by JS -->
+            </div>
+
+            <button onclick="window.saveOrder()" id="saveBtn" class="mt-8 w-full bg-blue-600 text-white font-bold py-4 rounded-2xl hover:bg-blue-700 active:bg-blue-800 transition shadow-md shadow-blue-200 text-lg flex items-center justify-center gap-2 opacity-50 cursor-not-allowed" disabled>
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
+                </svg>
+                儲存這筆訂單 (等待連線中)
+            </button>
+        </div>
+
+        <!-- Summary Table -->
+        <div class="bg-white p-5 md:p-8 rounded-3xl shadow-sm border border-slate-100">
+            <div class="flex items-center justify-between mb-6 border-b border-slate-100 pb-4">
+                <h2 class="text-xl font-bold text-slate-800 flex items-center gap-2">
+                    📊 目前總庫存統計
+                </h2>
+                <span class="text-sm font-medium text-slate-500 bg-slate-100 px-3 py-1 rounded-full" id="totalOrdersCount">載入中...</span>
+            </div>
+            <div class="overflow-x-auto">
+                <table class="w-full text-left border-collapse">
+                    <thead>
+                        <tr class="text-slate-400 text-sm border-b border-slate-100">
+                            <th class="py-3 px-2 font-medium">機台</th>
+                            <th class="py-3 px-2 font-medium">角色與簡稱</th>
+                            <th class="py-3 px-2 text-right font-medium">已抽總數</th>
+                        </tr>
+                    </thead>
+                    <tbody id="summaryBody">
+                        <!-- Summary rows will be injected here -->
+                    </tbody>
+                    <tfoot>
+                        <tr class="border-t-2 border-slate-200 bg-slate-50">
+                            <td colspan="2" class="py-4 px-2 text-right font-bold text-slate-600">總計扭蛋數量：</td>
+                            <td class="py-4 px-2 text-right font-black text-2xl text-blue-600" id="grandTotalCount">0</td>
+                        </tr>
+                    </tfoot>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- 將模組化的 JavaScript 寫在這裡 -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInWithCustomToken, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, addDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        const characters = [
+            { id: '1-1', machine: '機台一', name: 'CHOITCHERRY', animal: '白兔', abbr: '哲/喆' },
+            { id: '1-2', machine: '機台一', name: 'JJONGTORAM', animal: '粉紅兔兔裝', abbr: '漢' },
+            { id: '1-3', machine: '機台一', name: 'SHUASUMI', animal: '小鹿', abbr: '秀' },
+            { id: '1-4', machine: '機台一', name: 'O.C.L.', animal: '疊疊貓咪', abbr: '俊' },
+            { id: '1-5', machine: '機台一', name: 'TAMTAM', animal: '老虎', abbr: '榮/星' },
+            { id: '1-6', machine: '機台一', name: 'FOXDUNGEE', animal: '紫狐狸', abbr: '圓' },
+            { id: '1-7', machine: '機台一', name: 'PPYOPULI', animal: '白雲精靈', abbr: '勳' },
+            { id: '2-1', machine: '機台二', name: 'THEpalee', animal: '綠青蛙', abbr: '浩/八' },
+            { id: '2-2', machine: '機台二', name: 'KIMJA', animal: '黃馬鈴薯', abbr: '奎' },
+            { id: '2-3', machine: '機台二', name: 'DOA', animal: '垂耳狗', abbr: '碩' },
+            { id: '2-4', machine: '機台二', name: 'BBOOGYULI', animal: '橘子', abbr: '寬' },
+            { id: '2-5', machine: '機台二', name: 'NONVER', animal: '灰連帽', abbr: '率/啵' },
+            { id: '2-6', machine: '機台二', name: 'CHANDALEE', animal: '水獺', abbr: '燦' }
+        ];
+
+        let currentCounts = {};
+        let grandTotals = {};
+        let orderCount = 0;
+        
+        // 雲端資料庫變數
+        let db = null;
+        let currentUser = null;
+        let appId = 'default-app-id';
+
+        // 初始化本地資料
+        characters.forEach(char => {
+            currentCounts[char.id] = 0;
+            grandTotals[char.id] = 0;
+        });
+
+        // 顯示提示訊息
+        function showToast(message, type = 'success') {
+            const toast = document.getElementById('toast');
+            const toastIcon = document.getElementById('toastIcon');
+            const toastMsg = document.getElementById('toastMsg');
+            
+            toast.className = `fixed top-5 left-1/2 transform -translate-x-1/2 text-white px-6 py-3 rounded-full shadow-lg transition-opacity duration-300 z-50 flex items-center gap-2 ${type === 'success' ? 'bg-emerald-500' : 'bg-red-500'}`;
+            
+            toastIcon.innerHTML = type === 'success' 
+                ? '<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>'
+                : '<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>';
+            
+            toastMsg.innerText = message;
+            toast.style.opacity = '1';
+            
+            setTimeout(() => {
+                toast.style.opacity = '0';
+            }, 2500);
+        }
+
+        // 渲染計數器卡片
+        function renderCounters() {
+            const grid = document.getElementById('counterGrid');
+            grid.innerHTML = characters.map(char => `
+                <div class="border-2 rounded-2xl p-3 bg-white border-slate-100 hover:border-blue-200 transition counter-card flex flex-col justify-between">
+                    <div>
+                        <div class="flex items-center gap-2 mb-1">
+                            <span class="text-[10px] bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full font-bold">${char.machine}</span>
+                        </div>
+                        <div class="font-black text-slate-800">${char.abbr}</div>
+                        <div class="text-xs text-slate-500 font-medium truncate">${char.animal}</div>
+                    </div>
+                    <div class="flex items-center justify-between mt-3 bg-slate-50 p-1 rounded-xl">
+                        <button onclick="window.updateCount('${char.id}', -1)" class="w-10 h-10 rounded-lg text-slate-500 hover:bg-white hover:shadow-sm font-bold text-xl flex items-center justify-center transition">-</button>
+                        <span id="count-${char.id}" class="font-mono text-xl font-black w-10 text-center text-blue-600">${currentCounts[char.id]}</span>
+                        <button onclick="window.updateCount('${char.id}', 1)" class="w-10 h-10 rounded-lg bg-blue-100 text-blue-600 hover:bg-blue-200 font-bold text-xl flex items-center justify-center transition">+</button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        // 更新區域數量 (綁定到 window 讓 HTML 點擊事件能讀取)
+        window.updateCount = function(id, delta) {
+            currentCounts[id] = Math.max(0, currentCounts[id] + delta);
+            document.getElementById(`count-${id}`).innerText = currentCounts[id];
+            
+            // 視覺回饋
+            const countElement = document.getElementById(`count-${id}`);
+            countElement.classList.add('scale-125');
+            setTimeout(() => countElement.classList.remove('scale-125'), 100);
+        }
+
+        // 渲染總計表
+        function renderSummary() {
+            const body = document.getElementById('summaryBody');
+            let totalAll = 0;
+            
+            body.innerHTML = characters.map(char => {
+                const total = grandTotals[char.id] || 0;
+                totalAll += total;
+                const rowStyle = total > 0 ? "bg-blue-50/30" : "";
+                const textStyle = total > 0 ? "text-blue-600 font-black" : "text-slate-400 font-medium";
+                
+                return `
+                <tr class="border-b border-slate-50 hover:bg-slate-50 transition ${rowStyle}">
+                    <td class="py-3 px-2 text-xs text-slate-400 font-medium">${char.machine}</td>
+                    <td class="py-3 px-2 text-slate-700">
+                        <span class="font-bold">${char.abbr}</span> 
+                        <span class="text-slate-400 text-sm ml-1 hidden sm:inline">(${char.animal})</span>
+                    </td>
+                    <td class="py-3 px-2 text-right font-mono text-xl ${textStyle}">${total}</td>
+                </tr>
+            `}).join('');
+            
+            document.getElementById('grandTotalCount').innerText = totalAll;
+        }
+
+        // 儲存訂單邏輯 (綁定到 window)
+        window.saveOrder = async function() {
+            if (!currentUser || !db) {
+                showToast('尚未連線到雲端，請稍後再試！', 'error');
+                return;
+            }
+
+            const nameInput = document.getElementById('customerName');
+            const name = nameInput.value.trim();
+            const saveBtn = document.getElementById('saveBtn');
+            
+            if (!name) { 
+                showToast('請先輸入客人名稱或訂單備註！', 'error');
+                nameInput.focus();
+                return; 
+            }
+
+            let hasItems = false;
+            let itemsToSave = {};
+
+            characters.forEach(char => {
+                if(currentCounts[char.id] > 0) {
+                    hasItems = true;
+                    itemsToSave[char.id] = currentCounts[char.id];
+                }
+            });
+
+            if(!hasItems) {
+                showToast('這筆訂單數量為 0，請先輸入扭蛋數量！', 'error');
+                return;
+            }
+
+            saveBtn.disabled = true;
+            saveBtn.innerHTML = '儲存中...';
+
+            try {
+                // 將這筆訂單新增到雲端 Firestore
+                const ordersRef = collection(db, 'artifacts', appId, 'users', currentUser.uid, 'orders');
+                await addDoc(ordersRef, {
+                    customerName: name,
+                    items: itemsToSave,
+                    timestamp: new Date().toISOString()
+                });
+
+                // 清空本地 UI 狀態 (總計狀態會由 onSnapshot 自動更新！)
+                characters.forEach(char => { currentCounts[char.id] = 0; });
+                nameInput.value = '';
+                renderCounters();
+                showToast(`成功將「${name}」的訂單儲存至雲端！`);
+                
+                window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+            } catch (error) {
+                console.error("儲存失敗", error);
+                showToast('儲存至雲端失敗！', 'error');
+            } finally {
+                saveBtn.disabled = false;
+                saveBtn.innerHTML = `
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
+                    </svg>
+                    儲存這筆訂單
+                `;
+            }
+        }
+
+        // ==========================================
+        // Firebase 初始化與即時資料同步監聽
+        // ==========================================
+        try {
+            // ▼▼▼ 將這裡替換成您的 Firebase Config ▼▼▼
+            const firebaseConfig = {
+                apiKey: "AIzaSyDkhYG8-rAfWzPz4WH5_e2mZBpkE6iD0xM",
+                authDomain: "miniteengashapon.firebaseapp.com",
+                projectId: "miniteengashapon",
+                storageBucket: "miniteengashapon.firebasestorage.app",
+                messagingSenderId: "198546039685",
+                appId: "1:198546039685:web:0b769f3e5fd98b26cadaec"
+            };
+            // ▲▲▲ ▲▲▲ ▲▲▲ ▲▲▲ ▲▲▲ ▲▲▲ ▲▲▲ ▲▲▲ ▲▲▲ ▲▲▲
+
+            const app = initializeApp(firebaseConfig);
+            const auth = getAuth(app);
+            db = getFirestore(app);
+            appId = 'my-gashapon-app'; // 固定一個 APP ID 即可
+
+            // 使用匿名登入機制
+            const initAuth = async () => {
+                try {
+                    await signInAnonymously(auth);
+                } catch (error) {
+                    console.error("驗證失敗:", error);
+                    showToast("無法連接驗證系統", "error");
+                }
+            };
+            initAuth();
+
+            // 監聽登入狀態並掛載資料
+            onAuthStateChanged(auth, (user) => {
+                currentUser = user;
+                const saveBtn = document.getElementById('saveBtn');
+                const syncStatus = document.getElementById('syncStatus');
+
+                if (user) {
+                    // 更新 UI 狀態
+                    syncStatus.className = "mt-4 flex items-center justify-center gap-2 text-sm font-bold text-emerald-600";
+                    syncStatus.innerHTML = '<span class="relative flex h-3 w-3"><span class="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span></span> 已連線，雲端同步中';
+                    
+                    saveBtn.disabled = false;
+                    saveBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+                    saveBtn.innerHTML = `
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
+                        </svg>
+                        儲存這筆訂單
+                    `;
+
+                    // 設定資料庫監聽 (每當資料庫變動，這段程式會自動抓取最新資料計算總和)
+                    const ordersRef = collection(db, 'artifacts', appId, 'users', user.uid, 'orders');
+                    onSnapshot(ordersRef, (snapshot) => {
+                        // 先將總和歸零重算
+                        characters.forEach(char => grandTotals[char.id] = 0);
+                        let currentOrderCount = 0;
+
+                        snapshot.forEach(doc => {
+                            currentOrderCount++;
+                            const data = doc.data();
+                            if (data.items) {
+                                // 累加訂單內的每個項目
+                                for (const [id, qty] of Object.entries(data.items)) {
+                                    if (grandTotals[id] !== undefined) {
+                                        grandTotals[id] += qty;
+                                    }
+                                }
+                            }
+                        });
+
+                        // 更新畫面
+                        document.getElementById('totalOrdersCount').innerText = `已完成 ${currentOrderCount} 筆`;
+                        renderSummary();
+                    }, (error) => {
+                        console.error("資料同步發生錯誤", error);
+                        showToast('雲端資料同步中斷', 'error');
+                    });
+                    
+                } else {
+                    saveBtn.disabled = true;
+                    saveBtn.classList.add('opacity-50', 'cursor-not-allowed');
+                }
+            });
+        } catch (error) {
+            console.error("Firebase 初始化失敗", error);
+            showToast('雲端系統初始化失敗', 'error');
+        }
+
+        // 初始載入畫面預設空狀態
+        renderCounters();
+        renderSummary();
+    </script>
+</body>
+</html>
