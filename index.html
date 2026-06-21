@@ -25,10 +25,25 @@
         <span id="toastMsg" class="font-bold tracking-wide"></span>
     </div>
 
+    <!-- 刪除確認的彈出視窗 (Modal) -->
+    <div id="deleteModal" class="fixed inset-0 bg-slate-900/60 hidden items-center justify-center z-[60] p-4 transition-opacity">
+        <div class="bg-white rounded-3xl p-6 max-w-sm w-full shadow-2xl relative text-center">
+            <div class="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4 text-red-500">
+                <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+            </div>
+            <h3 class="text-xl font-bold text-slate-800 mb-2">確定刪除此訂單？</h3>
+            <p class="text-slate-500 text-sm mb-6">刪除後將無法復原，且所有連線設備的總計數量都會同步扣除。</p>
+            <div class="flex gap-3">
+                <button onclick="window.closeDeleteModal()" class="flex-1 bg-slate-100 text-slate-600 font-bold py-3 rounded-xl hover:bg-slate-200 transition">取消</button>
+                <button id="confirmDeleteBtn" class="flex-1 bg-red-500 text-white font-bold py-3 rounded-xl hover:bg-red-600 transition shadow-md shadow-red-200">確定刪除</button>
+            </div>
+        </div>
+    </div>
+
     <div class="max-w-4xl mx-auto">
         <header class="mb-6 text-center">
             <h1 class="text-3xl font-black text-slate-800 tracking-tight">MINI TEEN 扭蛋盤點系統</h1>
-            <p class="text-slate-500 mt-2 font-medium">記錄每個客人的扭蛋，並自動加總統計</p>
+            <p class="text-slate-500 mt-2 font-medium">記錄每個客人的扭蛋，並自動加總統計 (多人共用版)</p>
             
             <!-- 雲端連線狀態指示器 -->
             <div id="syncStatus" class="mt-4 flex items-center justify-center gap-2 text-sm font-bold text-amber-500">
@@ -42,9 +57,15 @@
 
         <!-- Current Order Input -->
         <div class="bg-white p-5 md:p-8 rounded-3xl shadow-sm border border-slate-100 mb-8">
-            <div class="mb-6">
-                <label class="block text-sm font-bold text-slate-700 mb-2 pl-1">👤 客人名稱 / 訂單備註</label>
-                <input type="text" id="customerName" placeholder="請輸入客人名稱 (必填)" class="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-4 focus:ring-blue-100 focus:border-blue-400 outline-none transition text-lg font-medium">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                <div>
+                    <label class="block text-sm font-bold text-slate-700 mb-2 pl-1">👤 客人名稱</label>
+                    <input type="text" id="customerName" placeholder="請輸入客人名稱 (必填)" class="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-4 focus:ring-blue-100 focus:border-blue-400 outline-none transition text-lg font-medium">
+                </div>
+                <div>
+                    <label class="block text-sm font-bold text-slate-700 mb-2 pl-1">📝 訂單備註 (選填)</label>
+                    <input type="text" id="orderNote" placeholder="例如：已付款、自取..." class="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-4 focus:ring-blue-100 focus:border-blue-400 outline-none transition text-lg font-medium">
+                </div>
             </div>
 
             <div id="counterGrid" class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 md:gap-4">
@@ -98,7 +119,7 @@
                 <h2 class="text-xl font-bold text-slate-800 flex items-center gap-2">
                     📜 各客戶訂單明細
                 </h2>
-                <p class="text-sm text-slate-500 mt-1">查看每位客人實際扭到的品項，最新訂單在最上方</p>
+                <p class="text-sm text-slate-500 mt-1">此列表與總庫存為<span class="font-bold text-blue-600">多人共用</span>，最新訂單在最上方</p>
             </div>
             <div id="orderListContainer" class="space-y-4">
                 <!-- Orders will be injected here -->
@@ -110,13 +131,17 @@
     <!-- 編輯訂單的彈出視窗 (Modal) -->
     <div id="editModal" class="fixed inset-0 bg-slate-900/60 hidden items-center justify-center z-50 p-4 transition-opacity">
         <div class="bg-white rounded-3xl p-5 md:p-8 max-w-4xl w-full max-h-[90vh] overflow-y-auto shadow-2xl relative">
-            <div class="flex justify-between items-center mb-6 sticky top-0 bg-white pt-2 pb-4 border-b border-slate-100 z-10">
-                <h2 class="text-xl md:text-2xl font-bold text-slate-800">
-                    ✏️ 修改訂單: <span id="editCustomerName" class="text-blue-600 ml-1"></span>
-                </h2>
-                <button onclick="window.closeEditModal()" class="text-slate-400 hover:bg-slate-100 p-2 rounded-full transition">
-                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
-                </button>
+            <div class="mb-6 sticky top-0 bg-white pt-2 pb-4 border-b border-slate-100 z-10">
+                <div class="flex justify-between items-center">
+                    <h2 class="text-xl md:text-2xl font-bold text-slate-800">
+                        ✏️ 修改訂單: <span id="editCustomerName" class="text-blue-600 ml-1"></span>
+                    </h2>
+                    <button onclick="window.closeEditModal()" class="text-slate-400 hover:bg-slate-100 p-2 rounded-full transition">
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                    </button>
+                </div>
+                <!-- 修改時也可以編輯備註 -->
+                <input type="text" id="editOrderNote" placeholder="📝 修改備註 (選填)" class="w-full mt-3 p-3 bg-slate-50 border border-slate-200 rounded-xl text-md font-medium outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100 transition">
             </div>
             
             <div id="editCounterGrid" class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 md:gap-4 mb-8">
@@ -160,6 +185,7 @@
         // 供修改功能使用的全域變數
         let globalOrdersList = []; 
         let editingOrderId = null;
+        let deletingOrderId = null; // 供刪除 Modal 使用
         let editCounts = {};
 
         // 雲端資料庫變數
@@ -281,10 +307,12 @@
                 const dateString = dateObj.toLocaleDateString('zh-TW', {month: 'short', day: 'numeric'});
 
                 let itemsHtml = '';
-                let orderTotalQty = 0; // 新增：用來記錄單筆訂單總數
+                let orderTotalQty = 0; 
                 
+                // 產生備註標籤 (若有)
+                const noteHtml = order.note ? `<span class="text-sm font-medium text-amber-600 bg-amber-50 px-2.5 py-0.5 rounded-md border border-amber-200 ml-2 shadow-sm">📝 ${order.note}</span>` : '';
+
                 if (order.items) {
-                    // 新增：計算該筆訂單的總扭蛋數量
                     orderTotalQty = Object.values(order.items).reduce((sum, qty) => sum + qty, 0);
                     
                     itemsHtml = Object.entries(order.items).map(([id, qty]) => {
@@ -304,6 +332,7 @@
                         <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-3 gap-2">
                             <span class="font-black text-lg text-slate-800 flex items-center gap-2 flex-wrap">
                                 👤 ${order.customerName}
+                                ${noteHtml}
                                 <span class="text-sm bg-blue-100 text-blue-700 px-2.5 py-0.5 rounded-full font-bold ml-1">共 ${orderTotalQty} 顆</span>
                             </span>
                             <div class="flex items-center gap-2 w-full sm:w-auto justify-between sm:justify-end">
@@ -315,7 +344,7 @@
                                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path></svg>
                                     </button>
                                     <!-- 刪除按鈕 -->
-                                    <button onclick="window.deleteOrder('${order.id}')" class="text-red-500 hover:bg-red-100 p-2 rounded-lg transition" title="刪除訂單">
+                                    <button onclick="window.openDeleteModal('${order.id}')" class="text-red-500 hover:bg-red-100 p-2 rounded-lg transition" title="刪除訂單">
                                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
                                     </button>
                                 </div>
@@ -330,7 +359,7 @@
         }
 
         // ==========================================
-        // 修改與刪除相關邏輯
+        // 修改與刪除相關邏輯 (改為 Public 路徑)
         // ==========================================
 
         window.openEditModal = function(orderId) {
@@ -339,6 +368,7 @@
             
             editingOrderId = orderId;
             document.getElementById('editCustomerName').innerText = order.customerName;
+            document.getElementById('editOrderNote').value = order.note || ''; // 載入備註
             
             // 初始化修改用的數量
             characters.forEach(char => {
@@ -393,10 +423,11 @@
         }
 
         window.saveEditedOrder = async function() {
-            if (!editingOrderId || !currentUser || !db) return;
+            if (!editingOrderId || !db) return;
             
             let hasItems = false;
             let itemsToSave = {};
+            const newNote = document.getElementById('editOrderNote').value.trim();
 
             characters.forEach(char => {
                 if (editCounts[char.id] > 0) {
@@ -411,10 +442,11 @@
             }
 
             try {
-                const orderRef = doc(db, 'artifacts', appId, 'users', currentUser.uid, 'orders', editingOrderId);
-                // 使用 updateDoc 更新該文件的 items 欄位
+                // 儲存至公開目錄 (所有人共用)
+                const orderRef = doc(db, 'artifacts', appId, 'public', 'data', 'orders', editingOrderId);
                 await updateDoc(orderRef, {
-                    items: itemsToSave
+                    items: itemsToSave,
+                    note: newNote
                 });
                 
                 showToast('✅ 訂單修改成功！');
@@ -425,35 +457,54 @@
             }
         };
 
-        window.deleteOrder = async function(orderId) {
-            // 原生瀏覽器確認視窗
-            if (!confirm('⚠️ 確定要刪除這筆訂單嗎？\n刪除後，總庫存統計表會自動扣除這些數量。')) {
-                return;
-            }
-            
+        // 自訂刪除確認視窗邏輯
+        window.openDeleteModal = function(orderId) {
+            deletingOrderId = orderId;
+            const modal = document.getElementById('deleteModal');
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+            document.body.style.overflow = 'hidden';
+        };
+
+        window.closeDeleteModal = function() {
+            deletingOrderId = null;
+            const modal = document.getElementById('deleteModal');
+            modal.classList.add('hidden');
+            modal.classList.remove('flex');
+            document.body.style.overflow = 'auto';
+        };
+
+        document.getElementById('confirmDeleteBtn').addEventListener('click', async () => {
+            if (!deletingOrderId || !db) return;
+            const orderId = deletingOrderId;
+            window.closeDeleteModal();
+
             try {
-                const orderRef = doc(db, 'artifacts', appId, 'users', currentUser.uid, 'orders', orderId);
+                // 刪除公開目錄中的該筆訂單
+                const orderRef = doc(db, 'artifacts', appId, 'public', 'data', 'orders', orderId);
                 await deleteDoc(orderRef);
                 showToast('🗑️ 訂單已刪除！');
             } catch(error) {
                 console.error("刪除失敗", error);
                 showToast('刪除失敗，請稍後再試！', 'error');
             }
-        };
+        });
 
-        // 儲存新訂單邏輯
+        // 儲存新訂單邏輯 (改為 Public 路徑)
         window.saveOrder = async function() {
-            if (!currentUser || !db) {
+            if (!db) {
                 showToast('尚未連線到雲端，請稍後再試！', 'error');
                 return;
             }
 
             const nameInput = document.getElementById('customerName');
+            const noteInput = document.getElementById('orderNote');
             const name = nameInput.value.trim();
+            const note = noteInput.value.trim();
             const saveBtn = document.getElementById('saveBtn');
             
             if (!name) { 
-                showToast('請先輸入客人名稱或訂單備註！', 'error');
+                showToast('請先輸入客人名稱！', 'error');
                 nameInput.focus();
                 return; 
             }
@@ -477,15 +528,18 @@
             saveBtn.innerHTML = '儲存中...';
 
             try {
-                const ordersRef = collection(db, 'artifacts', appId, 'users', currentUser.uid, 'orders');
+                // 儲存至公開目錄 (所有人共用)
+                const ordersRef = collection(db, 'artifacts', appId, 'public', 'data', 'orders');
                 await addDoc(ordersRef, {
                     customerName: name,
+                    note: note, // 儲存備註
                     items: itemsToSave,
                     timestamp: new Date().toISOString()
                 });
 
                 characters.forEach(char => { currentCounts[char.id] = 0; });
                 nameInput.value = '';
+                noteInput.value = '';
                 renderCounters();
                 showToast(`成功將「${name}」的訂單儲存至雲端！`);
                 
@@ -550,16 +604,16 @@
                         儲存這筆訂單
                     `;
 
-                    const ordersRef = collection(db, 'artifacts', appId, 'users', user.uid, 'orders');
+                    // 監聽公開目錄 (所有人共用)
+                    const ordersRef = collection(db, 'artifacts', appId, 'public', 'data', 'orders');
                     onSnapshot(ordersRef, (snapshot) => {
                         characters.forEach(char => grandTotals[char.id] = 0);
                         let currentOrderCount = 0;
-                        globalOrdersList = []; // 每次更新時重新賦值給全域陣列，供修改功能使用
+                        globalOrdersList = []; 
 
                         snapshot.forEach(docSnap => {
                             currentOrderCount++;
                             const data = docSnap.data();
-                            // 加入 docSnap.id 讓每筆訂單擁有獨立 ID 以供刪除或修改
                             globalOrdersList.push({ id: docSnap.id, ...data }); 
 
                             if (data.items) {
