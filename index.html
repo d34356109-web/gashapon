@@ -60,14 +60,17 @@
         </div>
 
         <!-- Summary Table -->
-        <div class="bg-white p-5 md:p-8 rounded-3xl shadow-sm border border-slate-100">
-            <div class="flex items-center justify-between mb-6 border-b border-slate-100 pb-4">
+        <div class="bg-white p-5 md:p-8 rounded-3xl shadow-sm border border-slate-100 mb-8">
+            <div class="flex items-center justify-between mb-4 border-b border-slate-100 pb-4 cursor-pointer hover:bg-slate-50 transition p-2 rounded-xl" onclick="window.toggleSummary()">
                 <h2 class="text-xl font-bold text-slate-800 flex items-center gap-2">
                     📊 目前總庫存統計
+                    <svg id="summaryToggleIcon" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-slate-400 transition-transform duration-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" style="transform: rotate(180deg);">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                    </svg>
                 </h2>
                 <span class="text-sm font-medium text-slate-500 bg-slate-100 px-3 py-1 rounded-full" id="totalOrdersCount">載入中...</span>
             </div>
-            <div class="overflow-x-auto">
+            <div id="summaryTableContainer" class="overflow-x-auto block transition-all">
                 <table class="w-full text-left border-collapse">
                     <thead>
                         <tr class="text-slate-400 text-sm border-b border-slate-100">
@@ -86,6 +89,20 @@
                         </tr>
                     </tfoot>
                 </table>
+            </div>
+        </div>
+
+        <!-- 個別訂單明細列表 -->
+        <div class="bg-white p-5 md:p-8 rounded-3xl shadow-sm border border-slate-100">
+            <div class="mb-6 border-b border-slate-100 pb-4">
+                <h2 class="text-xl font-bold text-slate-800 flex items-center gap-2">
+                    📜 各客戶訂單明細
+                </h2>
+                <p class="text-sm text-slate-500 mt-1">查看每位客人實際扭到的品項，最新訂單在最上方</p>
+            </div>
+            <div id="orderListContainer" class="space-y-4">
+                <!-- Orders will be injected here -->
+                <p class="text-slate-400 text-center py-4">資料載入中...</p>
             </div>
         </div>
     </div>
@@ -202,6 +219,68 @@
             `}).join('');
             
             document.getElementById('grandTotalCount').innerText = totalAll;
+        }
+
+        // 切換總庫存統計顯示/隱藏 (綁定到 window 讓 HTML 能呼叫)
+        window.toggleSummary = function() {
+            const container = document.getElementById('summaryTableContainer');
+            const icon = document.getElementById('summaryToggleIcon');
+            if (container.classList.contains('hidden')) {
+                container.classList.remove('hidden');
+                container.classList.add('block');
+                icon.style.transform = 'rotate(180deg)';
+            } else {
+                container.classList.remove('block');
+                container.classList.add('hidden');
+                icon.style.transform = 'rotate(0deg)';
+            }
+        };
+
+        // 渲染個別訂單列表
+        function renderOrderList(orders) {
+            const container = document.getElementById('orderListContainer');
+            if (orders.length === 0) {
+                container.innerHTML = '<p class="text-slate-400 text-center py-4 bg-slate-50 rounded-xl">目前還沒有訂單資料</p>';
+                return;
+            }
+
+            // 依照時間排序，最新的在最上面
+            orders.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+
+            container.innerHTML = orders.map(order => {
+                const dateObj = new Date(order.timestamp);
+                const timeString = dateObj.toLocaleTimeString('zh-TW', {hour: '2-digit', minute:'2-digit'});
+                const dateString = dateObj.toLocaleDateString('zh-TW', {month: 'short', day: 'numeric'});
+
+                // 產生該客人抽到的內容列表
+                let itemsHtml = '';
+                if (order.items) {
+                    itemsHtml = Object.entries(order.items).map(([id, qty]) => {
+                        const char = characters.find(c => c.id === id);
+                        if (!char) return '';
+                        return `
+                            <div class="flex justify-between items-center py-2 border-b border-slate-50 last:border-0">
+                                <span class="text-sm text-slate-600"><span class="text-[10px] bg-slate-100 px-1 py-0.5 rounded text-slate-500 mr-1">${char.machine}</span> <span class="font-bold text-slate-800 text-base">${char.abbr}</span> (${char.animal})</span>
+                                <span class="font-mono font-black text-blue-600 bg-blue-50 px-2 py-0.5 rounded-md">x${qty}</span>
+                            </div>
+                        `;
+                    }).join('');
+                }
+
+                return `
+                    <div class="bg-slate-50/50 p-4 rounded-2xl border border-slate-100 transition hover:shadow-md hover:bg-white">
+                        <div class="flex justify-between items-center mb-3">
+                            <span class="font-black text-lg text-slate-800 flex items-center gap-2">
+                                👤 ${order.customerName}
+                            </span>
+                            <span class="text-xs text-slate-500 font-medium bg-white border border-slate-200 px-2 py-1 rounded-full shadow-sm">${dateString} ${timeString}</span>
+                        </div>
+                        <div class="bg-white rounded-xl p-3 border border-slate-100 shadow-sm">
+                            ${itemsHtml}
+                        </div>
+                    </div>
+                `;
+            }).join('');
         }
 
         // 儲存訂單邏輯 (綁定到 window)
@@ -326,10 +405,13 @@
                         // 先將總和歸零重算
                         characters.forEach(char => grandTotals[char.id] = 0);
                         let currentOrderCount = 0;
+                        let ordersList = []; // 用來儲存所有訂單的陣列
 
                         snapshot.forEach(doc => {
                             currentOrderCount++;
                             const data = doc.data();
+                            ordersList.push(data); // 將每一筆訂單資料推進陣列
+
                             if (data.items) {
                                 // 累加訂單內的每個項目
                                 for (const [id, qty] of Object.entries(data.items)) {
@@ -343,6 +425,7 @@
                         // 更新畫面
                         document.getElementById('totalOrdersCount').innerText = `已完成 ${currentOrderCount} 筆`;
                         renderSummary();
+                        renderOrderList(ordersList); // 更新下方客人個別訂單明細畫面
                     }, (error) => {
                         console.error("資料同步發生錯誤", error);
                         showToast('雲端資料同步中斷', 'error');
